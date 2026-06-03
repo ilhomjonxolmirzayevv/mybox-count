@@ -4,9 +4,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index",
-    "bot": "nodemon index"
-  },
+  "start": "node index.js",
+  "bot": "nodemon index.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
