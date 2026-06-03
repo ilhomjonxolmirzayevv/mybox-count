@@ -2,7 +2,9 @@ import { Telegraf, Markup } from "telegraf";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
+import express from "express";
 
+const app = express();
 /* ── INIT ── */
 const { MONGO_URI, BOT_TOKEN } = process.env;
 if (!MONGO_URI || !BOT_TOKEN)
@@ -363,3 +365,9 @@ bot.on("text", async (ctx) => {
   await clearState(uid);
   ctx.reply("⚠️ Noma'lum reja. Asosiy menyuga qaytildi.", MENU);
 });
+
+app.get("/", (req, res) => {
+  res.send("Bot ishlayapti");
+});
+
+app.listen(process.env.PORT || 3000);
