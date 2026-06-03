@@ -1,66 +1,75 @@
-# 🪙 Not Snap Bot
+# 📦 My Box Count Bot
 
-Not Snap — bu **XE.com** va **Bitget** birjalaridan olingan real vaqtli ma'lumotlar asosida ishlaydigan professional valyuta va kriptovalyuta konvertori. Bot foydalanuvchilarga fiat kurslarini (UZS, RUB, USD) va mashhur kriptovalyutalarni tezkor hisoblash imkonini beradi.
+Telegram orqali ombordagi mahsulotlarni boshqarish uchun bot.
 
-## 🚀 Funksiyalari
+## Imkoniyatlar
 
-* **XE.com integratsiyasi:** Dunyodagi eng ishonchli manbadan olingan fiat valyuta kurslari (UZS, RUB).
-* **Bitget narxlari:** Kriptovalyutalar narxini real vaqtda Bitget birjasidan olish.
-* **Matematik hisob-kitoblar:** Bot ichida misollarni yechish (masalan: `100 + 50 ton`).
-* **Komissiya kalkulyatori:** Sof foydani hisoblash (masalan: `1000 ton com 5`).
-* **Avtomatik yangilanish:** Kurslar har 5 daqiqada avtomatik ravishda yangilanadi.
-* **Dinamik tugmalar:** Har bir natija ostida kurs manbasiga va birjaga havolalar mavjud.
+* ➕ Mahsulot qo‘shish
+* ✏️ Mahsulot miqdorini tahrirlash
+* 🗑 Mahsulotni o‘chirish
+* 📦 Mahsulotlar ro‘yxatini ko‘rish
+* 🔍 Mahsulot qidirish
+* 💾 MongoDB bazasida saqlash
+* 🌐 Barcha foydalanuvchilar uchun umumiy ombor
 
-## 🛠 Texnologiyalar
+## Texnologiyalar
 
-* **Node.js** — server tomoni.
-* **Telegraf.js** — Telegram Bot API bilan ishlash uchun.
-* **Axios** — Tashqi API-larga so'rov yuborish.
-* **Math.js** — Matematik ifodalarni hisoblash.
-* **Express** — Render-da 24/7 onlayn turish uchun mini-server.
+* Node.js
+* Telegraf
+* MongoDB
+* Mongoose
 
-## 📥 O'rnatish va ishga tushirish
+## O‘rnatish
 
-1.  **Loyiha klonini yuklab oling:**
-    ```bash
-    git clone [https://github.com/sizning_profil/coinsnap-bot.git](https://github.com/sizning_profil/coinsnap-bot.git)
-    cd coinsnap-bot
-    ```
+Repository'ni klon qiling:
 
-2.  **Kutubxonalarni o'rnating:**
-    ```bash
-    npm install
-    ```
+```bash
+git clone (https://github.com/ilhomjonxolmirzayevv/mybox-count.git)
+cd mybox-count
+```
 
-3.  **.env faylini yarating va bot tokenini qo'shing:**
-    ```env
-    API_TOKEN=Sizning_Bot_Tokeningiz
-    PORT=5000
-    ```
+Paketlarni o‘rnating:
 
-4.  **Botni ishga tushiring:**
-    ```bash
-    node index.js
-    ```
+```bash
+npm install
+```
 
-## ☁️ Render.com-ga yuklash (24/7 ishlatish)
+`.env` fayl yarating:
 
-1.  GitHub-ga loyihani yuklang.
-2.  Render-da **Web Service** yarating.
-3.  **Build Command:** `npm install`
-4.  **Start Command:** `node index.js`
-5.  **Environment Variables** bo'limiga `API_TOKEN` ni qo'shing.
-6.  Bot uxlab qolmasligi uchun Render bergan URL manzilni **UptimeRobot**-ga `HTTP(s)` monitor qilib qo'shing.
+```env
+BOT_TOKEN=YOUR_BOT_TOKEN
+MONGODB_URI=YOUR_MONGODB_URI
+```
 
-## ⌨️ Buyruqlar va misollar
+Botni ishga tushiring:
 
-* `/start` — Botni ishga tushirish.
-* `/coins` — Mashhur kriptovalyutalar narxlarini ko'rish.
-* `100 usd uzs` — Dollarni so'mga aylantirish.
-* `50 ton com 3` — 50 ta TON dan 3% komissiya olib tashlanganda qoladigan summani hisoblash.
-* `1000000 uzs ton` — 1 million so'mga qancha TON berishini hisoblash.
-* `2500 + 500 rub` — Matematik amal bajarib, natijani rublda ko'rish.
+```bash
+npm start
+```
 
-## 📜 Litsenziya
+yoki
 
-Ushbu loyiha MIT litsenziyasi ostida yaratilgan.
+```bash
+node index.js
+```
+
+## Buyruqlar
+
+* `/start` — Botni ishga tushirish
+* `/list` — Mahsulotlar ro‘yxati
+* `/add [nom] [soni]` — Mahsulot qo‘shish
+* `/edit [nom] [soni]` — Mahsulotni tahrirlash
+* `/delete [nom]` — Mahsulotni o‘chirish
+* `/help` — Yordam
+
+## Menyu
+
+* ➕ Qo'shish
+* ✏️ Tahrirlash
+* 📦 Mahsulotlar
+* 🔍 Qidirish
+* ℹ️ Yordam
+
+## Litsenziya
+
+MIT License
