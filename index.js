@@ -11,7 +11,6 @@ const { MONGO_URI, BOT_TOKEN } = process.env;
 if (!MONGO_URI || !BOT_TOKEN)
   throw new Error("❌ .env: MONGO_URI / BOT_TOKEN kerak");
 
-// MongoDB-ga ulanish va keyin botni ishga tushirish
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log("🍃 MongoDB-ga muvaffaqiyatli ulandi!");
@@ -26,9 +25,11 @@ const OWNERS = [6584963215, 1228723117];
 const isAdmin = (uid) => OWNERS.includes(Number(uid));
 
 /* ── MONGOOSE SCHEMAS & MODELS ── */
+// `image` maydoni qo'shildi (ixtiyoriy rasm uchun file_id saqlaydi)
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
-  quantity: { type: Number, required: true, default: 0 }
+  quantity: { type: Number, required: true, default: 0 },
+  image: { type: String, default: null } 
 });
 const Product = mongoose.model("Product", productSchema);
 
@@ -39,7 +40,6 @@ const userStateSchema = new mongoose.Schema({
 });
 const UserState = mongoose.model("UserState", userStateSchema);
 
-// Foydalanuvchilarni saqlash uchun model
 const botUserSchema = new mongoose.Schema({
   user_id: { type: Number, required: true, unique: true },
   first_name: String,
@@ -49,14 +49,12 @@ const botUserSchema = new mongoose.Schema({
 const BotUser = mongoose.model("BotUser", botUserSchema);
 
 /* ── CONSTANTS & KEYBOARDS ── */
-// Adminlar uchun to'liq menyu
 const ADMIN_MENU = Markup.keyboard([
   ["➕ Qo'shish", "✏️ Tahrirlash"],
   ["📦 Mahsulotlar", "🔍 Qidirish"],
   ["ℹ️ Yordam", "⚙️ Admin Panel"],
 ]).resize();
 
-// Oddiy foydalanuvchilar uchun cheklangan menyu
 const USER_MENU = Markup.keyboard([
   ["📦 Mahsulotlar", "🔍 Qidirish"],
   ["ℹ️ Yordam"]
@@ -75,7 +73,24 @@ function productCard(item) {
     `${sq(item.quantity)}  Quti ichida: *${item.quantity}x*`;
 }
 
-// Xabarni o'chirib tashlash (Yopish) funksiyasi
+// Mahsulotni rasm bormi-yo'qligiga qarab yuborish funksiyasi
+async function replyWithProduct(ctx, item, uid, keyboardExtra = {}) {
+  const caption = productCard(item);
+  const actions = productActions(item.name, uid);
+  
+  const finalOptions = {
+    parse_mode: "Markdown",
+    ...actions,
+    ...keyboardExtra
+  };
+
+  if (item.image) {
+    return ctx.replyWithPhoto(item.image, { caption, ...finalOptions });
+  } else {
+    return ctx.reply(caption, finalOptions);
+  }
+}
+
 bot.action("close_card", async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -85,7 +100,6 @@ bot.action("close_card", async (ctx) => {
   }
 });
 
-// Admin yoki foydalanuvchiligiga qarab inline tugmalarni chiqarish
 function productActions(name, uid) {
   if (isAdmin(uid)) {
     return Markup.inlineKeyboard([
@@ -100,7 +114,6 @@ function productActions(name, uid) {
   }
 }
 
-// Mahsulotlarni pastki menyu (Keyboard) sifatida chiqarish
 async function sendListAsKeyboard(ctx) {
   const data = await Product.find().sort({ name: 1 });
   const currentMenu = isAdmin(ctx.from.id) ? ADMIN_MENU : USER_MENU;
@@ -142,15 +155,17 @@ async function clearState(uid) {
 }
 
 /* ── DB OPERATIONS ── */
-async function upsertProduct(name, quantity) {
+async function upsertProduct(name, quantity, imageFileId = null) {
   try {
     const cleanName = name.trim().toLowerCase();
     const ex = await Product.findOne({ name: cleanName });
     if (ex) {
-      await Product.updateOne({ name: cleanName }, { quantity });
+      const updateData = { quantity };
+      if (imageFileId) updateData.image = imageFileId; // Rasm kelsa, rasmini ham yangilaydi
+      await Product.updateOne({ name: cleanName }, updateData);
       return { updated: true, name: cleanName };
     }
-    await Product.create({ name: cleanName, quantity });
+    await Product.create({ name: cleanName, quantity, image: imageFileId });
     return { updated: false, name: cleanName };
   } catch (error) {
     return { error };
@@ -200,7 +215,6 @@ bot.start(async (ctx) => {
   const uid = ctx.from.id;
   await clearState(uid);
 
-  // Foydalanuvchini bazaga yozish/yangilash
   await BotUser.findOneAndUpdate(
     { user_id: uid },
     { first_name: ctx.from.first_name, username: ctx.from.username },
@@ -220,7 +234,7 @@ const helpText =
   `${sep}\nℹ️  *YORDAM VA BUYRUQLAR*\n${sep}\n\n` +
   `📦 *Mahsulotlar* — Jamiki tovarlar ro'yxati.\n` +
   `🔍 *Qidirish* — Tovarni qidirish.\n\n` +
-  `⚠️ *Eslatma:* Mahsulot qo'shish, tahrirlash va o'chirish huquqlari faqat bot adminlariga berilgan.`;
+  `⚠️ *Eslatma:* Mahsulot qo'shish (rasmli/rasmsiz), tahrirlash va o'chirish huquqlari faqat bot adminlariga berilgan.`;
 
 bot.command("help", async (ctx) => { await clearState(ctx.from.id); ctx.reply(helpText, { parse_mode: "Markdown", ... (isAdmin(ctx.from.id) ? ADMIN_MENU : USER_MENU) }); });
 bot.hears("ℹ️ Yordam", async (ctx) => { await clearState(ctx.from.id); ctx.reply(helpText, { parse_mode: "Markdown", ... (isAdmin(ctx.from.id) ? ADMIN_MENU : USER_MENU) }); });
@@ -274,7 +288,7 @@ bot.action(/^view:(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const item = await Product.findOne({ name: ctx.match[1] });
   if (!item) return ctx.reply("❌ Mahsulot topilmadi.");
-  ctx.reply(productCard(item), { parse_mode: "Markdown", ...productActions(item.name, ctx.from.id) });
+  await replyWithProduct(ctx, item, ctx.from.id);
 });
 
 bot.action(/^edit:(.+)$/, async (ctx) => {
@@ -309,6 +323,10 @@ bot.action(/^confirmDel:(.+)$/, async (ctx) => {
   ctx.reply(`🗑 📦 *${name.toUpperCase()}* muvaffaqiyatli o'chirildi.`, ADMIN_MENU);
 });
 
+bot.catch((err, ctx) => {
+  console.error("Bot xatosi:", err);
+});
+
 /* ── BEKOR QILISH ── */
 bot.hears("❌ Bekor qilish", async (ctx) => {
   await clearState(ctx.from.id);
@@ -319,63 +337,55 @@ bot.command("cancel", async (ctx) => {
   ctx.reply("✅ Jarayon bekor qilindi.", isAdmin(ctx.from.id) ? ADMIN_MENU : USER_MENU);
 });
 
-/* ── QO'SHISH (ADD / BULK ADD) ── */
+/* ── QO'SHISH (ADD MODIFIED FOR PHOTO) ── */
 bot.hears("➕ Qo'shish", async (ctx) => {
   if (!isAdmin(ctx.from.id)) return ctx.reply("⛔️ Bu buyruq faqat adminlar uchun.");
+  await setState(ctx.from.id, "add_choose_type");
+  
+  ctx.reply("Yangi mahsulot kiritish turini tanlang:", {
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback("📸 Rasmli mahsulot qo'shish", "add_with_photo")],
+      [Markup.button.callback("📝 Matnli ommaviy (Bulk) qo'shish", "add_bulk_text")]
+    ])
+  });
+});
+
+bot.action("add_bulk_text", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCbQuery("⛔️ Ruxsat yo'q");
+  await ctx.answerCbQuery();
   await setState(ctx.from.id, "add_bulk");
   ctx.reply("➕ Mahsulot nomi va miqdorini kiriting.\n\n*Bir nechta qo'shish uchun har birini yangi qatordan yozing.*\n_Namuna:_\n`Asprin 50`\n`Analgin 120`", { parse_mode: "Markdown", ...CANCEL_KB });
 });
 
-bot.command("add", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return ctx.reply("⛔️ Bu buyruq faqat adminlar uchun.");
-  const text = ctx.message.text.replace("/add", "").trim();
-  if (!text) return ctx.reply("❌ Misol: `/add dermazol 10` yoki qatorma-qator bulk yozing.", { parse_mode: "Markdown" });
+bot.action("add_with_photo", async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCbQuery("⛔️ Ruxsat yo'q");
+  await ctx.answerCbQuery();
+  await setState(ctx.from.id, "add_photo_name");
+  ctx.reply("📸 Mahsulot *nomini* kiriting:", { parse_mode: "Markdown", ...CANCEL_KB });
+});
 
-  const { addedCount, updatedCount, failedLines } = await processBulkInput(text);
-  let msg = `📋 *Natija:*\n✅ Yangi qo'shildi: ${addedCount} ta\n♻️ Yangilandi: ${updatedCount} ta`;
-  if (failedLines.length > 0) msg += `\n⚠️ Xato format: \n${failedLines.join("\n")}`;
+/* ── GLOBAL PHOTO & TEXT HANDLERS ── */
+
+// Rasmlarni qabul qiluvchi handler (Faqat "add_photo_file" bosqichida ishlaydi)
+bot.on("photo", async (ctx) => {
+  const uid = ctx.from.id;
+  if (!isAdmin(uid)) return;
+
+  const state = await getState(uid);
+  if (!state || state.step !== "add_photo_file") return;
+
+  const { pName, pQty } = state;
+  // Eng yuqori sifatli rasmning file_id sini olamiz
+  const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+
+  await clearState(uid);
+  const res = await upsertProduct(pName, pQty, fileId);
+
+  let msg = res.updated ? `♻️ *${pName.toUpperCase()}* miqdori va rasmi yangilandi!` : `✅ Yangi rasmli mahsulot qo'shildi: *${pName.toUpperCase()}*`;
   ctx.reply(msg, { parse_mode: "Markdown", ...ADMIN_MENU });
 });
 
-/* ── TAHRIRLASH (EDIT) ── */
-bot.hears("✏️ Tahrirlash", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return ctx.reply("⛔️ Bu buyruq faqat adminlar uchun.");
-  await setState(ctx.from.id, "edit_name");
-  ctx.reply("✏️ Miqdorini o'zgartirmoqchi bo'lgan mahsulot *nomini* kiriting:", { parse_mode: "Markdown", ...CANCEL_KB });
-});
-
-bot.command("edit", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return ctx.reply("⛔️ Bu buyruq faqat adminlar uchun.");
-  const [, name, n] = ctx.message.text.trim().split(/\s+/);
-  if (!name || !n) return ctx.reply("❌ Misol: `/edit dermazol 20`", { parse_mode: "Markdown" });
-  const qty = parseInt(n);
-  if (isNaN(qty) || qty < 0) return ctx.reply("❌ Soni noto'g'ri");
-
-  const item = await Product.findOne({ name: name.toLowerCase() });
-  if (!item) return ctx.reply(`❌ *${name}* topilmadi.`, { parse_mode: "Markdown" });
-
-  await Product.updateOne({ name: name.toLowerCase() }, { quantity: qty });
-  ctx.reply(`♻️ *${name}* yangilandi — *${qty}x* quti`, { parse_mode: "Markdown", ...ADMIN_MENU });
-});
-
-/* ── O'CHIRISH (DELETE COMMAND) ── */
-bot.command("delete", async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return ctx.reply("⛔️ Bu buyruq faqat adminlar uchun.");
-  const [, name] = ctx.message.text.trim().split(/\s+/);
-  if (!name) return ctx.reply("❌ Misol: `/delete dermazol`", { parse_mode: "Markdown" });
-  const item = await Product.findOne({ name: name.toLowerCase() });
-  if (!item) return ctx.reply(`❌ *${name}* topilmadi.`, { parse_mode: "Markdown" });
-  await Product.deleteOne({ name: name.toLowerCase() });
-  ctx.reply(`🗑 *${name}* o'chirildi.`, { parse_mode: "Markdown", ...ADMIN_MENU });
-});
-
-/* ── QIDIRISH (SEARCH) ── */
-bot.hears("🔍 Qidirish", async (ctx) => {
-  await setState(ctx.from.id, "search");
-  ctx.reply("🔍 Qidirilayotgan tovar nomini yozing:", CANCEL_KB);
-});
-
-/* ── GLOBAL TEXT HANDLER ── */
+// Matnli handler
 bot.on("text", async (ctx) => {
   let text = ctx.message.text.trim();
   if (text.startsWith("/") || KB.includes(text)) return;
@@ -394,14 +404,29 @@ bot.on("text", async (ctx) => {
     if (!data?.length) return; 
 
     if (data.length === 1) {
-      return ctx.reply(productCard(data[0]), { parse_mode: "Markdown", ...productActions(data[0].name, uid) });
+      return replyWithProduct(ctx, data[0], uid);
     }
 
     const buttons = data.map(i => [Markup.button.callback(`${sq(i.quantity)}  ${i.name}`, `view:${i.name}`)]);
     return ctx.reply(`🔍 O'xshash *${data.length}* ta natija topildi:`, { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) });
   }
 
-  const { step, name } = state;
+  const { step, name, pName, pQty } = state;
+
+  // Rasmli qo'shish stagi: Nom kiritilgandan so'ng miqdorni so'rash
+  if (step === "add_photo_name" && isAdmin(uid)) {
+    await setState(uid, "add_photo_qty", { pName: text.toLowerCase() });
+    return ctx.reply(`✏️ *${text.toUpperCase()}* uchun miqdorini (quti sonini) yozing:`, { parse_mode: "Markdown", ...CANCEL_KB });
+  }
+
+  // Rasmli qo'shish stagi: Miqdor kiritilgandan so'ng rasm so'rash
+  if (step === "add_photo_qty" && isAdmin(uid)) {
+    const qty = parseInt(text);
+    if (isNaN(qty) || qty < 0) return ctx.reply("❌ Noto'g'ri son kiritildi. Qaytadan miqdorini yozing:");
+    
+    await setState(uid, "add_photo_file", { pName, pQty: qty });
+    return ctx.reply("📸 Endi ushbu mahsulotning *rasmini* botga yuboring (Rasm sifatida):", CANCEL_KB);
+  }
 
   // 2. ADMIN REKLAMA / BROADCST TARQATISH STAGI
   if (step === "broadcast_msg" && isAdmin(uid)) {
@@ -414,14 +439,12 @@ bot.on("text", async (ctx) => {
       try {
         await ctx.telegram.sendMessage(u.user_id, text);
         count++;
-      } catch (e) {
-        // Bloklagan foydalanuvchilarni tashlab ketadi
-      }
+      } catch (e) {}
     }
     return ctx.reply(`📢 Xabar jami *${count}* ta faol foydalanuvchiga yuborildi.`, ADMIN_MENU);
   }
 
-  // 3. BULK / ODDIY QO'SHISH REJIMIDA (FAQAT ADMIN)
+  // 3. BULK REJIMIDA (FAQAT ADMIN)
   if (step === "add_bulk") {
     if (!isAdmin(uid)) return;
     await clearState(uid);
@@ -448,7 +471,7 @@ bot.on("text", async (ctx) => {
     await clearState(uid);
     await Product.updateOne({ name }, { quantity: qty });
     const item = await Product.findOne({ name });
-    return ctx.reply(`♻️ *${name.toUpperCase()}* yangilandi!\n\n` + productCard(item), { parse_mode: "Markdown", ...ADMIN_MENU });
+    return replyWithProduct(ctx, item, uid, currentMenu);
   }
 
   // 6. QIDIRUV REJIMIDA (HAMMA UCHUN)
@@ -458,7 +481,7 @@ bot.on("text", async (ctx) => {
     if (!data?.length) return ctx.reply(`❌ *${text}* ombordan topilmadi.`, currentMenu);
 
     if (data.length === 1) {
-      return ctx.reply(productCard(data[0]), { parse_mode: "Markdown", ...productActions(data[0].name, uid), ...currentMenu });
+      return replyWithProduct(ctx, data[0], uid, currentMenu);
     }
     const buttons = data.map(i => [Markup.button.callback(`${sq(i.quantity)}  ${i.name}`, `view:${i.name}`)]);
     return ctx.reply(`🔍 Skladdan *${data.length}* ta natija topildi:`, { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons), ...currentMenu });
@@ -473,4 +496,3 @@ app.get("/", (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000);
-           
