@@ -25,7 +25,6 @@ const OWNERS = [6584963215, 1228723117];
 const isAdmin = (uid) => OWNERS.includes(Number(uid));
 
 /* ── MONGOOSE SCHEMAS & MODELS ── */
-// `image` maydoni qo'shildi (ixtiyoriy rasm uchun file_id saqlaydi)
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   quantity: { type: Number, required: true, default: 0 },
@@ -161,7 +160,7 @@ async function upsertProduct(name, quantity, imageFileId = null) {
     const ex = await Product.findOne({ name: cleanName });
     if (ex) {
       const updateData = { quantity };
-      if (imageFileId) updateData.image = imageFileId; // Rasm kelsa, rasmini ham yangilaydi
+      if (imageFileId) updateData.image = imageFileId; 
       await Product.updateOne({ name: cleanName }, updateData);
       return { updated: true, name: cleanName };
     }
@@ -210,6 +209,58 @@ async function processBulkInput(text) {
   return { addedCount, updatedCount, failedLines };
 }
 
+/* ── TRANSLITERATION MANTIG'I (LOTIN <-> KIRILL) ── */
+// Bu funksiya yozilgan matnni ham lotinchaga, ham kirillchaga o'girib variantlarni beradi
+function getSearchVariants(text) {
+  const clean = text.toLowerCase().trim();
+  
+  const latToKir = {
+    'a':'а', 'b':'б', 'v':'в', 'g':'г', 'd':'д', 'e':'е', 'z':'з', 'i':'и', 
+    'y':'й', 'k':'к', 'l':'л', 'm':'м', 'n':'н', 'o':'о', 'p':'п', 'r':'р', 
+    's':'с', 't':'т', 'u':'у', 'f':'ф', 'x':'х', 'ts':'ц', 'ch':'ч', 'sh':'ш', 
+    'yu':'ю', 'ya':'я', 'o\'':'ў', 'g\'':'ғ', 'q':'қ', 'h':'ҳ', 'e\'':'э', 'c':'ц'
+  };
+
+  const kirToLat = {
+    'а':'a', 'б':'b', 'в':'v', 'г':'g', 'д':'d', 'е':'e', 'ё':'yo', 'ж':'j', 
+    'з':'z', 'и':'i', 'й':'y', 'к':'k', 'л':'l', 'м':'m', 'н':'n', 'о':'o', 
+    'п':'p', 'р':'r', 'с':'s', 'т':'t', 'у':'u', 'ф':'f', 'х':'x', 'ц':'ts', 
+    'ч':'ch', 'ш':'sh', 'щ':'sh', 'ъ':'', 'ы':'i', 'ь':'', 'э':'e', 'ю':'yu', 
+    'я':'ya', 'ў':'o\'', 'ғ':'g\'', 'қ':'q', 'ҳ':'h'
+  };
+
+  // 1-variant: Murakkab harflarni to'g'irlash (sh, ch, yo...)
+  let converted = clean;
+  
+  // Agar matnda kirill harflari bo'lsa, lotinga o'giramiz
+  if (/[а-яёўғқҳ]/i.test(clean)) {
+    let res = "";
+    for (let i = 0; i < clean.length; i++) {
+      res += kirToLat[clean[i]] || clean[i];
+    }
+    return [clean, res];
+  } else {
+    // Agar matn lotincha bo'lsa, kirillchaga o'giramiz
+    let res = clean
+      .replace(/ch/g, 'ч').replace(/sh/g, 'ш').replace(/yu/g, 'ю')
+      .replace(/ya/g, 'я').replace(/o’|o'|o`|ó/g, 'ў').replace(/g’|g'|g`|ǵ/g, 'ғ');
+    
+    let finalKir = "";
+    for (let i = 0; i < res.length; i++) {
+      finalKir += latToKir[res[i]] || res[i];
+    }
+    return [clean, finalKir];
+  }
+}
+
+// Ombordan har xil variantlar (lotin/kirill) bo'yicha qidirish
+async function SmartSearch(text) {
+  const variants = getSearchVariants(text); // ['skoch', 'скоч'] ko'rinishida qaytadi
+  const orConditions = variants.map(v => ({ name: new RegExp(v, "i") }));
+  
+  return await Product.find({ $or: orConditions }).sort({ name: 1 });
+}
+
 /* ── COMMAND HANDLERS ── */
 bot.start(async (ctx) => {
   const uid = ctx.from.id;
@@ -233,7 +284,7 @@ bot.start(async (ctx) => {
 const helpText =
   `${sep}\nℹ️  *YORDAM VA BUYRUQLAR*\n${sep}\n\n` +
   `📦 *Mahsulotlar* — Jamiki tovarlar ro'yxati.\n` +
-  `🔍 *Qidirish* — Tovarni qidirish.\n\n` +
+  `🔍 *Qidirish* — Tovarni qidirish (Lotin yoki Kirill harflarida yozsangiz ham bot tushunadi).\n\n` +
   `⚠️ *Eslatma:* Mahsulot qo'shish (rasmli/rasmsiz), tahrirlash va o'chirish huquqlari faqat bot adminlariga berilgan.`;
 
 bot.command("help", async (ctx) => { await clearState(ctx.from.id); ctx.reply(helpText, { parse_mode: "Markdown", ... (isAdmin(ctx.from.id) ? ADMIN_MENU : USER_MENU) }); });
@@ -337,7 +388,7 @@ bot.command("cancel", async (ctx) => {
   ctx.reply("✅ Jarayon bekor qilindi.", isAdmin(ctx.from.id) ? ADMIN_MENU : USER_MENU);
 });
 
-/* ── QO'SHISH (ADD MODIFIED FOR PHOTO) ── */
+/* ── QO'SHISH ── */
 bot.hears("➕ Qo'shish", async (ctx) => {
   if (!isAdmin(ctx.from.id)) return ctx.reply("⛔️ Bu buyruq faqat adminlar uchun.");
   await setState(ctx.from.id, "add_choose_type");
@@ -366,7 +417,6 @@ bot.action("add_with_photo", async (ctx) => {
 
 /* ── GLOBAL PHOTO & TEXT HANDLERS ── */
 
-// Rasmlarni qabul qiluvchi handler (Faqat "add_photo_file" bosqichida ishlaydi)
 bot.on("photo", async (ctx) => {
   const uid = ctx.from.id;
   if (!isAdmin(uid)) return;
@@ -375,7 +425,6 @@ bot.on("photo", async (ctx) => {
   if (!state || state.step !== "add_photo_file") return;
 
   const { pName, pQty } = state;
-  // Eng yuqori sifatli rasmning file_id sini olamiz
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
 
   await clearState(uid);
@@ -385,7 +434,6 @@ bot.on("photo", async (ctx) => {
   ctx.reply(msg, { parse_mode: "Markdown", ...ADMIN_MENU });
 });
 
-// Matnli handler
 bot.on("text", async (ctx) => {
   let text = ctx.message.text.trim();
   if (text.startsWith("/") || KB.includes(text)) return;
@@ -398,9 +446,9 @@ bot.on("text", async (ctx) => {
   const state = await getState(uid);
   const currentMenu = isAdmin(uid) ? ADMIN_MENU : USER_MENU;
 
-  // 1. STATE YO'Q HOLATDA (Tezkor qidiruv)
+  // 1. STATE YO'Q HOLATDA (Aqlli Tezkor qidiruv)
   if (!state) {
-    const data = await Product.find({ name: new RegExp(text.toLowerCase(), "i") }).sort({ name: 1 });
+    const data = await SmartSearch(text); 
     if (!data?.length) return; 
 
     if (data.length === 1) {
@@ -413,13 +461,11 @@ bot.on("text", async (ctx) => {
 
   const { step, name, pName, pQty } = state;
 
-  // Rasmli qo'shish stagi: Nom kiritilgandan so'ng miqdorni so'rash
   if (step === "add_photo_name" && isAdmin(uid)) {
     await setState(uid, "add_photo_qty", { pName: text.toLowerCase() });
     return ctx.reply(`✏️ *${text.toUpperCase()}* uchun miqdorini (quti sonini) yozing:`, { parse_mode: "Markdown", ...CANCEL_KB });
   }
 
-  // Rasmli qo'shish stagi: Miqdor kiritilgandan so'ng rasm so'rash
   if (step === "add_photo_qty" && isAdmin(uid)) {
     const qty = parseInt(text);
     if (isNaN(qty) || qty < 0) return ctx.reply("❌ Noto'g'ri son kiritildi. Qaytadan miqdorini yozing:");
@@ -457,10 +503,12 @@ bot.on("text", async (ctx) => {
   // 4. EDIT ISMINI KIRITGANDA (FAQAT ADMIN)
   if (step === "edit_name") {
     if (!isAdmin(uid)) return;
-    const item = await Product.findOne({ name: text.toLowerCase() });
-    if (!item) return ctx.reply(`❌ *${text}* topilmadi. Qaytadan kiriting yoki bekor qiling:`, { parse_mode: "Markdown" });
-    await setState(uid, "edit_qty", { name: text.toLowerCase() });
-    return ctx.reply(`✏️ *${text.toUpperCase()}* — yangi quti sonini (x) yozing:`, { parse_mode: "Markdown", ...CANCEL_KB });
+    const items = await SmartSearch(text); // Tahrirlashda ham aqlli qidiruv
+    if (!items?.length) return ctx.reply(`❌ *${text}* topilmadi. Qaytadan kiriting yoki bekor qiling:`, { parse_mode: "Markdown" });
+    
+    const targetItem = items[0];
+    await setState(uid, "edit_qty", { name: targetItem.name });
+    return ctx.reply(`✏️ *${targetItem.name.toUpperCase()}* — yangi quti sonini (x) yozing:`, { parse_mode: "Markdown", ...CANCEL_KB });
   }
 
   // 5. EDIT REJIMIDA SON KIRITISH (FAQAT ADMIN)
@@ -477,7 +525,7 @@ bot.on("text", async (ctx) => {
   // 6. QIDIRUV REJIMIDA (HAMMA UCHUN)
   if (step === "search") {
     await clearState(uid);
-    const data = await Product.find({ name: new RegExp(text.toLowerCase(), "i") }).sort({ name: 1 });
+    const data = await SmartSearch(text); // Lotin/kirill avtomatik tekshiradigan funksiya
     if (!data?.length) return ctx.reply(`❌ *${text}* ombordan topilmadi.`, currentMenu);
 
     if (data.length === 1) {
